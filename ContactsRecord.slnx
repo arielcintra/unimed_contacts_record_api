@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ContactsRecord.Api/ContactsRecord.Api.csproj" />
+    <Project Path="src/ContactsRecord.Application/ContactsRecord.Application.csproj" />
+    <Project Path="src/ContactsRecord.Domain/ContactsRecord.Domain.csproj" />
+    <Project Path="src/ContactsRecord.Infrastructure/ContactsRecord.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ContactsRecord.Application.Tests/ContactsRecord.Application.Tests.csproj" />
+    <Project Path="tests/ContactsRecord.Domain.Tests/ContactsRecord.Domain.Tests.csproj" />
+    <Project Path="tests/ContactsRecord.Infrastructure.Tests/ContactsRecord.Infrastructure.Tests.csproj" />
+    <Project Path="tests/ContactsRecord.IntegrationTests/ContactsRecord.IntegrationTests.csproj" />
+  </Folder>
+</Solution>

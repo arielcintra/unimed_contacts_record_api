@@ -1,0 +1,64 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: contacts_record
+      POSTGRES_USER: contacts
+      POSTGRES_PASSWORD: contacts
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U contacts -d contacts_record"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  rabbitmq:
+    # "management" adds the web console at http://localhost:15672.
+    image: rabbitmq:4-management-alpine
+    environment:
+      # The default "guest" user only accepts connections from localhost, so a dedicated user is needed.
+      RABBITMQ_DEFAULT_USER: contacts
+      RABBITMQ_DEFAULT_PASS: contacts
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmqdata:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+      interval: 5s
+      timeout: 10s
+      retries: 20
+
+  api:
+    build: .
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__Default: Host=postgres;Port=5432;Database=contacts_record;Username=contacts;Password=contacts
+      RabbitMq__ConnectionString: amqp://contacts:contacts@rabbitmq:5672/
+      # Access token lifetime in minutes.
+      Jwt__ExpirationMinutes: ${JWT_EXPIRATION_MINUTES:-60}
+      # CSV rows inserted per database round trip.
+      Imports__BatchSize: ${IMPORT_BATCH_SIZE:-500}
+    ports:
+      - "5251:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  web:
+    # The web app lives in a sibling repository; clone both side by side.
+    build: ../unimed_contacts_record_web
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
+  rabbitmqdata:
