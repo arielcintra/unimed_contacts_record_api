@@ -1,6 +1,6 @@
 # Agenda de Contatos — API
 
-API REST para gerenciamento de contatos: cadastro, consulta paginada com busca e filtros, edição, inativação/reativação, favoritos e importação assíncrona de arquivos CSV. O acesso é restrito a usuários autenticados (JWT).
+API REST para gerenciamento de contatos: cadastro, consulta paginada com busca e filtros, edição, inativação/reativação, favoritos e importação assíncrona de arquivos CSV. O acesso é restrito a usuários autenticados (JWT), com dois perfis: administrador e comum (RBAC).
 
 O frontend fica em um repositório separado: [`unimed_contacts_record_web`](../unimed_contacts_record_web).
 
@@ -87,7 +87,7 @@ Fora do compose, use os nomes da coluna "Configuração na API".
 
 ### Acesso à API pelo Swagger
 
-Todos os endpoints exigem um token JWT, exceto o login. Na inicialização a API cria o usuário configurado, se ele ainda não existir.
+Todos os endpoints exigem um token JWT, exceto o login. Na inicialização a API cria o usuário configurado, se ele ainda não existir, e garante que ele seja o único administrador.
 
 1. Execute `POST /api/auth/login` com as credenciais acima e copie o `accessToken` da resposta.
 2. Clique em **Authorize**, cole o token e confirme.
@@ -110,10 +110,10 @@ dotnet test
 
 | Projeto | Tipo | O que cobre |
 |---|---|---|
-| `ContactsRecord.Domain.Tests` | Unitário | Value objects; entidades `Contact`, `User` e `ContactImport` (incluindo as transições de status); classe base `Entity` |
-| `ContactsRecord.Application.Tests` | Unitário | `ContactService`, `AuthService`, `ContactImportService` e `ImportFileService` com dependências substituídas (NSubstitute) e relógio fixo |
+| `ContactsRecord.Domain.Tests` | Unitário | Value objects; entidades `Contact`, `User` (perfil, regra de senha, administrador não editável) e `ContactImport` (incluindo as transições de status); classe base `Entity` |
+| `ContactsRecord.Application.Tests` | Unitário | `ContactService`, `AuthService`, `UserService`, `ContactImportService` e `ImportFileService` com dependências substituídas (NSubstitute) e relógio fixo |
 | `ContactsRecord.Infrastructure.Tests` | Unitário | Leitura de CSV: delimitador `,` e `;`, BOM, cabeçalho, aspas, linhas em branco |
-| `ContactsRecord.IntegrationTests` | Integração | API real contra PostgreSQL e RabbitMQ reais: autenticação, CRUD, busca, filtros, paginação, concorrência, commit e rollback do Unit of Work e importação de ponta a ponta |
+| `ContactsRecord.IntegrationTests` | Integração | API real contra PostgreSQL e RabbitMQ reais: autenticação, permissões por perfil (`403` para usuário comum em `/api/users`), administrador único, CRUD, busca, filtros, paginação, concorrência, commit e rollback do Unit of Work e importação de ponta a ponta |
 
 Os testes de integração precisam do Docker em execução: o Testcontainers sobe um PostgreSQL e um RabbitMQ descartáveis a cada execução, sem tocar no ambiente local.
 
@@ -137,6 +137,9 @@ dotnet test tests/ContactsRecord.Infrastructure.Tests
 | `PATCH` | `/api/contacts/{id}/activate` | Reativa |
 | `PUT` | `/api/contacts/{id}/favorite` | Marca como favorito |
 | `DELETE` | `/api/contacts/{id}/favorite` | Desmarca como favorito |
+| `GET` | `/api/users` | Lista usuários, administrador primeiro (**somente administrador**) |
+| `POST` | `/api/users` | Cadastra um usuário comum (`201`) (**somente administrador**) |
+| `PUT` | `/api/users/{id}` | Edita e-mail e, se informada, a senha de um usuário comum (**somente administrador**) |
 | `POST` | `/api/imports` | Envia um CSV (`multipart/form-data`, campo `file`) e enfileira o processamento (`202`) |
 | `GET` | `/api/imports` | Histórico de importações, mais recentes primeiro |
 | `GET` | `/api/imports/{id}` | Status e contadores de uma importação |
@@ -149,6 +152,7 @@ Parâmetros das listagens:
 | `page` | todas | `1` | Página (mínimo 1) |
 | `pageSize` | todas | `20` | Itens por página (de 1 a 100) |
 | `search` | `/api/contacts` | — | Busca por nome, e-mail ou telefone |
+| `search` | `/api/users` | — | Busca por e-mail |
 | `isFavorite` | `/api/contacts` | — | `true` / `false`; ausente = todos |
 | `isActive` | `/api/contacts` | — | `true` / `false`; ausente = todos |
 | `kind` | `/api/imports/{id}/errors` | — | `Invalid` / `Duplicate`; ausente = todos |
@@ -174,10 +178,11 @@ Erros seguem o padrão **ProblemDetails** ([RFC 9457](https://www.rfc-editor.org
 
 | Status | Quando |
 |---|---|
-| `400` | Dados inválidos (nome vazio, e-mail ou telefone em formato inválido; arquivo vazio, sem extensão `.csv` ou acima de 5 MB) |
+| `400` | Dados inválidos (nome vazio, e-mail ou telefone em formato inválido; senha com menos de 8 caracteres; tentativa de editar o administrador; arquivo vazio, sem extensão `.csv` ou acima de 5 MB) |
 | `401` | Sem token, token inválido ou expirado, ou login com credenciais inválidas |
-| `404` | Contato ou importação não encontrados |
-| `409` | Telefone já pertence a outro contato (ativo ou inativo) |
+| `403` | Usuário comum acessando um endpoint exclusivo do administrador (`/api/users`) |
+| `404` | Contato, usuário ou importação não encontrados |
+| `409` | Telefone já pertence a outro contato (ativo ou inativo) ou e-mail já pertence a outro usuário |
 | `503` | RabbitMQ indisponível ao enviar uma importação |
 
 ## Importação de CSV
@@ -249,12 +254,12 @@ Api ──► Application ──► Domain
 
 | Camada | Responsabilidade |
 |---|---|
-| `Domain` | Entidades `Contact`, `User` e `ContactImport`; value objects `PhoneNumber` e `Email`. Regras de negócio e invariantes, sem dependências externas. |
-| `Application` | Casos de uso (`ContactService`, `AuthService`, `ContactImportService`, `ImportFileService`), contratos (repositórios, `IImportQueue`, `ICsvContactReader`, `IPasswordHasher`, `ITokenService`) e DTOs. |
+| `Domain` | Entidades `Contact`, `User` (com o perfil `UserRole`) e `ContactImport`; value objects `PhoneNumber` e `Email`. Regras de negócio e invariantes, sem dependências externas. |
+| `Application` | Casos de uso (`ContactService`, `AuthService`, `UserService`, `ContactImportService`, `ImportFileService`), contratos (repositórios, `IImportQueue`, `ICsvContactReader`, `IPasswordHasher`, `ITokenService`) e DTOs. |
 | `Infrastructure` | Repositórios com Dapper sobre uma sessão de banco por escopo (`DbSession`, que implementa o Unit of Work), esquema e migrations com EF Core, RabbitMQ (publicação e consumidor), leitura de CSV, JWT, hash de senha, registro de dependências. |
 | `Api` | Controllers, política de autorização, tradução de exceções para ProblemDetails, inicialização do banco. |
 
-DTOs têm o sufixo `Dto` explícito. Na Application: `ContactInputDto`, `ContactQueryDto`, `ContactOutputDto`, `LoginInputDto`, `LoginOutputDto`, `ContactImportOutputDto`, `ImportQueryDto`, `ImportRowErrorQueryDto`, `ImportRowErrorOutputDto`, `PagedQueryDto` e `PagedResultDto<T>`. Na Infrastructure, os `*PersistenceDto` representam as linhas das tabelas e nunca saem dessa camada.
+DTOs têm o sufixo `Dto` explícito. Na Application: `ContactInputDto`, `ContactQueryDto`, `ContactOutputDto`, `LoginInputDto`, `LoginOutputDto`, `UserInputDto`, `UserQueryDto`, `UserOutputDto`, `ContactImportOutputDto`, `ImportQueryDto`, `ImportRowErrorQueryDto`, `ImportRowErrorOutputDto`, `PagedQueryDto` e `PagedResultDto<T>`. Na Infrastructure, os `*PersistenceDto` representam as linhas das tabelas e nunca saem dessa camada.
 
 ## Decisões de arquitetura e benefícios
 
@@ -268,6 +273,7 @@ DTOs têm o sufixo `Dto` explícito. Na Application: `ContactInputDto`, `Contact
 | EF Core só para esquema, Dapper para os dados | Migrations versionadas e automáticas, com SQL explícito e controle total das consultas |
 | Uma classe de persistência por tabela | O esquema (EF) e o SQL (Dapper) usam a mesma definição e não divergem |
 | JWT com política global de autenticação | API sem estado; todo endpoint novo nasce protegido |
+| RBAC com `[Authorize(Roles = "Admin")]` e perfil no token | Permissão verificada pela própria API (o frontend só esconde o que o usuário não pode usar); sem consulta ao banco por requisição |
 | RabbitMQ para a importação | Processamento desacoplado da requisição, início imediato (sem polling), mensagens que sobrevivem a reinícios e escala horizontal adicionando consumidores |
 | Arquivo no PostgreSQL, mensagem só com o id | Upload e registro na mesma base transacional; mensagens pequenas; sem volume extra para arquivos |
 | `ImportFileService` separado do consumidor | O processamento é testável sem RabbitMQ; o consumidor só recebe e confirma mensagens |
@@ -337,11 +343,20 @@ Além dos padrões já presentes desde o início (Repository, Value Object, Fact
 
 ### Autenticação
 
-- **Login gera um JWT** assinado com HMAC-SHA256, com o id e o e-mail do usuário. A API valida emissor, audiência, assinatura e expiração, sem tolerância extra de tempo.
+- **Login gera um JWT** assinado com HMAC-SHA256, com o id, o e-mail e o perfil (claim `role`) do usuário. A resposta do login também traz o perfil, para o frontend decidir o que mostrar. A API valida emissor, audiência, assinatura e expiração, sem tolerância extra de tempo.
 - **Protegido por padrão:** uma política global exige usuário autenticado em todos os endpoints. Só o login é marcado como `[AllowAnonymous]`.
 - **Usuário criado pela configuração:** não há cadastro público. O usuário inicial vem das chaves `SeedUser:Email` e `SeedUser:Password`.
 - **Mensagem única para falha de login:** e-mail inexistente e senha errada devolvem o mesmo `401`, para que não seja possível descobrir quais e-mails estão cadastrados.
-- **Senha:** guardada apenas como hash (PBKDF2 com salt, do ASP.NET Core Identity, já incluso no framework).
+- **Senha:** guardada apenas como hash (PBKDF2 com salt, do ASP.NET Core Identity, já incluso no framework); mínimo de 8 caracteres para usuários cadastrados pelo administrador.
+
+### Perfis de acesso (RBAC)
+
+- **Dois perfis:** `Admin` e `Common`, gravados como texto na coluna `users.role`.
+- **Administrador único, definido pela configuração:** a cada inicialização a API cria a conta do `SeedUser` (se não existir), atribui a ela o perfil `Admin` e transforma em `Common` qualquer outro administrador (por exemplo, se o e-mail configurado mudar). As duas operações rodam numa única transação.
+- **Cadastro só gera usuários comuns:** o `UserInputDto` não tem campo de perfil, então não há como promover alguém pela API.
+- **O administrador não pode ser editado pela API** (`400`): seus dados vêm da configuração.
+- **Gestão de usuários restrita:** `/api/users` exige o perfil `Admin`; um usuário comum recebe `403`. Contatos e importações continuam disponíveis para qualquer usuário autenticado.
+- **Perfil fixo durante a validade do token:** como o perfil vai no JWT, uma mudança de perfil só vale a partir do próximo login (no máximo 60 minutos).
 
 ### Outras decisões
 
@@ -358,8 +373,8 @@ Além dos padrões já presentes desde o início (Repository, Value Object, Fact
 - **Telefone:** obrigatório, aceita fixo ou celular, com 10 ou 11 dígitos após a normalização; o prefixo `+55` é removido.
 - **Nome:** obrigatório, até 150 caracteres.
 - **E-mail:** opcional, normalizado para minúsculas e **não** único.
-- **Agenda única:** todos os usuários acessam a mesma agenda.
-- **Usuários:** existe apenas o usuário criado pela configuração; não há cadastro, perfis nem permissões diferentes. Alterar a senha na configuração não atualiza um usuário que já existe.
+- **Agenda única:** todos os usuários, de qualquer perfil, acessam a mesma agenda.
+- **Usuários:** o administrador é sempre a conta da configuração e é o único que cadastra e edita usuários; os demais são comuns. Não há exclusão nem inativação de usuários. Alterar a senha na configuração não atualiza um usuário que já existe.
 - **Busca:** por nome ou e-mail (sem diferenciar maiúsculas) e por telefone. A busca por telefone só é aplicada quando o termo não contém letras, para que "Ana 2" não traga todos os telefones que contêm o dígito 2.
 - **Consulta de contatos:** segue o enunciado (paginação, busca e filtros); não há endpoint de busca de contato por id. Por isso o `POST /api/contacts` devolve `201` com o contato criado no corpo, sem cabeçalho `Location`.
 - **Ordenação:** contatos por nome; importações da mais recente para a mais antiga; erros pela linha do arquivo.

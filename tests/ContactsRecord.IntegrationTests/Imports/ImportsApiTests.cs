@@ -2,7 +2,6 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using ContactsRecord.Application.Common.Dtos;
 using ContactsRecord.Application.Contacts.Dtos;
 using ContactsRecord.Application.Imports.Dtos;
@@ -16,10 +15,7 @@ namespace ContactsRecord.IntegrationTests.Imports;
 public class ImportsApiTests(ApiFactory factory)
 {
     private static readonly TimeSpan ProcessingTimeout = TimeSpan.FromSeconds(30);
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
-    {
-        Converters = { new JsonStringEnumConverter() },
-    };
+    private static readonly JsonSerializerOptions Json = ApiFactory.Json;
 
     private readonly HttpClient _client = factory.CreateAuthenticatedClient();
 

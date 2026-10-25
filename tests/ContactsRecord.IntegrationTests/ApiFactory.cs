@@ -1,4 +1,6 @@
 using System.Net.Http.Headers;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using ContactsRecord.Application.Auth;
 using ContactsRecord.Domain.Common;
 using ContactsRecord.Domain.Users;
@@ -17,6 +19,12 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     public const string SeedEmail = "admin@unimed.local";
     public const string SeedPassword = "Test@123";
 
+    /// <summary>Reads responses the way the API writes them (enums as text).</summary>
+    public static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
+    {
+        Converters = { new JsonStringEnumConverter() },
+    };
+
     private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder("postgres:17-alpine").Build();
     private readonly RabbitMqContainer _rabbitMq = new RabbitMqBuilder("rabbitmq:4-alpine").Build();
 
@@ -32,9 +40,12 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         }));
 
     /// <summary>Client sending a valid access token, issued by the API's own token service.</summary>
-    public HttpClient CreateAuthenticatedClient()
+    /// <param name="role">Admin: the seed user; Common: a user that only works with contacts and imports.</param>
+    public HttpClient CreateAuthenticatedClient(UserRole role = UserRole.Admin)
     {
-        var user = User.Create(Email.Create(SeedEmail), "unused-hash", DateTimeOffset.UtcNow);
+        var user = role == UserRole.Admin
+            ? User.CreateAdmin(Email.Create(SeedEmail), "unused-hash", DateTimeOffset.UtcNow)
+            : User.Create(Email.Create("common@unimed.local"), "unused-hash", DateTimeOffset.UtcNow);
         var token = Services.GetRequiredService<ITokenService>().Generate(user);
 
         var client = CreateClient();

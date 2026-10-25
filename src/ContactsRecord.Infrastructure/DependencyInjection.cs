@@ -58,7 +58,10 @@ public static class DependencyInjection
         return services;
     }
 
-    /// <summary>Applies pending migrations, then creates the configured user if it doesn't exist.</summary>
+    /// <summary>
+    /// Applies pending migrations, then makes the configured user the only administrator
+    /// (created if it doesn't exist; an existing account keeps its password).
+    /// </summary>
     public static async Task InitializeDatabaseAsync(this IServiceProvider services)
     {
         await using var scope = services.CreateAsyncScope();
@@ -70,11 +73,14 @@ public static class DependencyInjection
         var users = provider.GetRequiredService<IUserRepository>();
         var email = Email.Create(seed.Email);
 
-        if (await users.GetByEmailAsync(email, CancellationToken.None) is not null) return;
+        // Hashing is slow on purpose: only done when the account has to be created.
+        var admin = await users.GetByEmailAsync(email, CancellationToken.None) ?? User.CreateAdmin(
+            email,
+            provider.GetRequiredService<IPasswordHasher>().Hash(seed.Password),
+            provider.GetRequiredService<TimeProvider>().GetUtcNow());
 
-        var passwordHash = provider.GetRequiredService<IPasswordHasher>().Hash(seed.Password);
-        var now = provider.GetRequiredService<TimeProvider>().GetUtcNow();
-        await users.AddAsync(User.Create(email, passwordHash, now), CancellationToken.None);
+        await provider.GetRequiredService<IUnitOfWork>().ExecuteAsync(
+            () => users.EnsureSingleAdminAsync(admin, CancellationToken.None), CancellationToken.None);
     }
 
     // Token generation and validation share the same options, so both are registered here.
@@ -93,6 +99,8 @@ public static class DependencyInjection
             .Configure<IOptions<JwtOptions>>((bearer, jwtOptions) =>
             {
                 var jwt = jwtOptions.Value;
+                // Keeps the claim names as issued ("role", not the long WS-* URI) so roles are read from "role".
+                bearer.MapInboundClaims = false;
                 bearer.TokenValidationParameters = new TokenValidationParameters
                 {
                     ValidIssuer = jwt.Issuer,
@@ -100,6 +108,7 @@ public static class DependencyInjection
                     IssuerSigningKey = jwt.SigningKey(),
                     // The token expires exactly at the configured time.
                     ClockSkew = TimeSpan.Zero,
+                    RoleClaimType = JwtTokenService.RoleClaim,
                 };
             });
 

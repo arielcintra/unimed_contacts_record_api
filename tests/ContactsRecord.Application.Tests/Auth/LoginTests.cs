@@ -30,7 +30,7 @@ public class LoginTests
     [Fact]
     public async Task Valid_credentials_return_a_token()
     {
-        var token = new LoginOutputDto("jwt", DateTimeOffset.UtcNow.AddHours(1));
+        var token = new LoginOutputDto("jwt", DateTimeOffset.UtcNow.AddHours(1), UserRole.Common);
         _tokens.Generate(StoredUser).Returns(token);
 
         var output = await _service.LoginAsync(new LoginInputDto(" ADMIN@unimed.local ", Password), CancellationToken.None);

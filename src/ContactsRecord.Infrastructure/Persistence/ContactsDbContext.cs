@@ -1,6 +1,7 @@
 using ContactsRecord.Domain.Common;
 using ContactsRecord.Domain.Contacts;
 using ContactsRecord.Domain.Imports;
+using ContactsRecord.Domain.Users;
 using ContactsRecord.Infrastructure.Persistence.Dtos;
 using Microsoft.EntityFrameworkCore;
 
@@ -32,6 +33,8 @@ public sealed class ContactsDbContext(DbContextOptions<ContactsDbContext> option
             user.HasKey(u => u.Id);
             user.Property(u => u.Id).ValueGeneratedNever();
             user.Property(u => u.Email).HasMaxLength(Email.MaxLength);
+            // Default for rows created before roles existed; the configured admin is promoted at startup.
+            user.Property(u => u.Role).HasMaxLength(StatusMaxLength).HasDefaultValue(nameof(UserRole.Common));
             user.HasIndex(u => u.Email).IsUnique();
         });
 

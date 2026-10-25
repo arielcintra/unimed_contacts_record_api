@@ -10,6 +10,9 @@ namespace ContactsRecord.Infrastructure.Auth;
 
 internal sealed class JwtTokenService(IOptions<JwtOptions> options, TimeProvider clock) : ITokenService
 {
+    /// <summary>Claim read by [Authorize(Roles = ...)]; the bearer validation maps it as the role claim.</summary>
+    public const string RoleClaim = "role";
+
     private readonly JsonWebTokenHandler _handler = new();
 
     public LoginOutputDto Generate(User user)
@@ -26,6 +29,7 @@ internal sealed class JwtTokenService(IOptions<JwtOptions> options, TimeProvider
             [
                 new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
                 new Claim(JwtRegisteredClaimNames.Email, user.Email.Value),
+                new Claim(RoleClaim, user.Role.ToString()),
             ]),
             IssuedAt = now.UtcDateTime,
             NotBefore = now.UtcDateTime,
@@ -33,6 +37,6 @@ internal sealed class JwtTokenService(IOptions<JwtOptions> options, TimeProvider
             SigningCredentials = new SigningCredentials(jwt.SigningKey(), SecurityAlgorithms.HmacSha256),
         });
 
-        return new LoginOutputDto(token, expiresAt);
+        return new LoginOutputDto(token, expiresAt, user.Role);
     }
 }

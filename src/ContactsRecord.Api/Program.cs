@@ -3,6 +3,7 @@ using ContactsRecord.Api.Errors;
 using ContactsRecord.Application.Auth;
 using ContactsRecord.Application.Contacts;
 using ContactsRecord.Application.Imports;
+using ContactsRecord.Application.Users;
 using ContactsRecord.Infrastructure;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.OpenApi;
@@ -33,12 +34,14 @@ builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<ApiExceptionHandler>();
 
 // Every endpoint requires an authenticated user unless it opts out with [AllowAnonymous].
+// Admin-only endpoints add [Authorize(Roles = "Admin")] on top of it.
 builder.Services.AddAuthorizationBuilder()
     .SetFallbackPolicy(new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
 
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<ContactService>();
 builder.Services.AddScoped<AuthService>();
+builder.Services.AddScoped<UserService>();
 builder.Services.AddScoped<ContactImportService>();
 builder.Services.AddScoped<ImportFileService>();
 builder.Services.AddInfrastructure();

@@ -21,7 +21,7 @@ public class AuthApiTests(ApiFactory factory)
             new LoginInputDto(ApiFactory.SeedEmail, ApiFactory.SeedPassword));
 
         response.EnsureSuccessStatusCode();
-        var login = await response.Content.ReadFromJsonAsync<LoginOutputDto>();
+        var login = await response.Content.ReadFromJsonAsync<LoginOutputDto>(ApiFactory.Json);
         Assert.False(string.IsNullOrWhiteSpace(login!.AccessToken));
         Assert.InRange(login.ExpiresAt, DateTimeOffset.UtcNow.AddMinutes(59), DateTimeOffset.UtcNow.AddMinutes(61));
 

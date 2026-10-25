@@ -13,6 +13,9 @@ public sealed class UserPersistenceDto
     public string Email { get; init; } = null!;
     public string PasswordHash { get; init; } = null!;
 
+    // Stored as text ("Admin", "Common"), readable in the database and stable if the enum is reordered.
+    public string Role { get; init; } = null!;
+
     // DateTime (UTC) instead of DateTimeOffset: it is what Npgsql returns for timestamptz.
     public DateTime CreatedAt { get; init; }
 
@@ -21,6 +24,7 @@ public sealed class UserPersistenceDto
         Id = user.Id,
         Email = user.Email.Value,
         PasswordHash = user.PasswordHash,
+        Role = user.Role.ToString(),
         CreatedAt = user.CreatedAt.UtcDateTime,
     };
 
@@ -28,5 +32,6 @@ public sealed class UserPersistenceDto
         Id,
         EmailValue.Create(Email),
         PasswordHash,
+        Enum.Parse<UserRole>(Role),
         new DateTimeOffset(DateTime.SpecifyKind(CreatedAt, DateTimeKind.Utc)));
 }
